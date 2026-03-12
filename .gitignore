@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+.env
+.DS_Store
+
+# model/checkpoint files
+*.pt
+*.pth
+
+# dataset/audio files if large
+data/
+datasets/
