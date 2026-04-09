@@ -222,12 +222,10 @@ def main():
 
     root_dir = "ESC-50"
 
-    # -------------------------
-    # CHOOSE CONFIG HERE
-    # -------------------------
+
     use_waveform_aug = True
-    use_specaug = False
-    model_name = "waveform_aug"
+    use_specaug = True
+    model_name = "both"
 
     # For specaug run:
     # use_waveform_aug = False

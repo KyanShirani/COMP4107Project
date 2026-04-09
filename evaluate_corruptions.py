@@ -10,10 +10,6 @@ import soundfile as sf
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-
-# -------------------------
-# Reproducibility
-# -------------------------
 def set_seed(seed=42):
     random.seed(seed)
     torch.manual_seed(seed)
@@ -140,9 +136,6 @@ def get_corruption_fn(corruption_name=None, severity=None):
     raise ValueError(f"Unknown corruption_name: {corruption_name}")
 
 
-# -------------------------
-# Dataset
-# -------------------------
 class ESC50Dataset(Dataset):
     def __init__(self, root_dir, folds, sample_rate=44100, n_mels=64, corruption_fn=None):
         self.root_dir = root_dir
@@ -200,9 +193,6 @@ class ESC50Dataset(Dataset):
         return mel, label
 
 
-# -------------------------
-# Same baseline model
-# -------------------------
 class SmallCNN(nn.Module):
     def __init__(self, num_classes=50):
         super().__init__()
@@ -277,48 +267,58 @@ def run_one_condition(model, root_dir, corruption_name, severity, device):
     return loss, acc
 
 
-def main():
-    set_seed(42)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using device:", device)
-
-    root_dir = "ESC-50"
-
-    # load saved baseline model
+def evaluate_model_file(model_path, root_dir, device):
     model = SmallCNN(num_classes=50).to(device)
-    model.load_state_dict(torch.load("best_baseline.pt", map_location=device))
-    print("Loaded best_baseline.pt")
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
 
     results = []
 
-    # clean
     clean_dataset = ESC50Dataset(root_dir=root_dir, folds=[5], corruption_fn=None)
     clean_loader = DataLoader(clean_dataset, batch_size=64, shuffle=False, num_workers=0)
     clean_loss, clean_acc = evaluate(model, clean_loader, device)
-    results.append(("clean", "-", clean_loss, clean_acc))
+    results.append(("clean", "-", clean_acc))
 
-    # corruption conditions
     severities = ["light", "medium", "heavy"]
     corruption_types = ["noise", "lowpass", "mulaw"]
 
     for corruption_name in corruption_types:
         for severity in severities:
-            print(f"Running: {corruption_name} | {severity}")
             loss, acc = run_one_condition(model, root_dir, corruption_name, severity, device)
-            results.append((corruption_name, severity, loss, acc))
+            results.append((corruption_name, severity, acc))
 
-    # print table
-    print("\n" + "=" * 60)
-    print("Corruption Evaluation Results")
-    print("=" * 60)
-    print(f"{'Condition':<12} {'Severity':<10} {'Loss':<12} {'Accuracy':<12}")
-    print("-" * 60)
+    return results
 
-    for cond, sev, loss, acc in results:
-        print(f"{cond:<12} {sev:<10} {loss:<12.4f} {acc:<12.4f}")
 
-    print("=" * 60)
+def main():
+    set_seed(42)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Using device:", device)
+
+    root_dir = "ESC-50"
+    model_files = [
+        "best_baseline.pt",
+        "best_waveform_aug.pt",
+        "best_specaug.pt",
+        "best_both.pt",
+    ]
+
+    all_results = {}
+
+    for model_file in model_files:
+        print(f"\nEvaluating {model_file} ...")
+        all_results[model_file] = evaluate_model_file(model_file, root_dir, device)
+
+    print("\n" + "=" * 90)
+    print("Ablation Results")
+    print("=" * 90)
+
+    for model_file, results in all_results.items():
+        print(f"\nModel: {model_file}")
+        print(f"{'Condition':<12} {'Severity':<10} {'Accuracy':<10}")
+        print("-" * 40)
+        for cond, sev, acc in results:
+            print(f"{cond:<12} {sev:<10} {acc:<10.4f}")
 
 
 if __name__ == "__main__":

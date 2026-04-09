@@ -5,9 +5,7 @@ import torchaudio
 import soundfile as sf
 from torch.utils.data import Dataset, random_split
 
-# -------------------------
-# Step A: Dataset class
-# -------------------------
+
 class ESC50Dataset(Dataset):
     def __init__(self, root_dir, folds, sample_rate=44100, n_mels=64):
         """
@@ -77,9 +75,7 @@ class ESC50Dataset(Dataset):
         return mel, label
 
 
-# -------------------------
-# Step B: Main test
-# -------------------------
+
 def main():
     root_dir = "ESC-50"   # change this if needed
 

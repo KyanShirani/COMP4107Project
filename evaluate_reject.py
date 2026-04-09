@@ -281,37 +281,53 @@ def build_validation_dataset(root_dir, corruption_fn=None):
     return val_dataset
 
 
-def tune_threshold(model, loader, device):
+def tune_threshold_practical(model, clean_val_loader, noisy_val_loader, device, clean_reject_cap=0.10):
     """
-    Tune tau on validation data.
-    We keep it simple:
-    - try taus from 0.30 to 0.95
-    - among thresholds with rejection rate <= 50%,
-      choose the one with lowest unsafe error rate
-    - tie-break with higher accepted accuracy
+    Choose tau so that clean validation rejection rate is capped,
+    then minimize unsafe error on heavy-noise validation.
+
+    clean_reject_cap=0.10 means clean reject rate must be <= 10%.
     """
-    candidates = [round(0.30 + 0.05 * i, 2) for i in range(14)]  # 0.30 ... 0.95
+    candidates = [round(0.00 + 0.05 * i, 2) for i in range(17)]  # 0.00 ... 0.80
     rows = []
 
     for tau in candidates:
-        stats = evaluate_with_reject(model, loader, device, tau)
-        rows.append(stats)
+        clean_stats = evaluate_with_reject(model, clean_val_loader, device, tau)
+        noisy_stats = evaluate_with_reject(model, noisy_val_loader, device, tau)
 
-    valid_rows = [r for r in rows if r["rejection_rate"] <= 0.50]
+        row = {
+            "tau": tau,
+            "clean_reject_rate": clean_stats["rejection_rate"],
+            "clean_accepted_acc": clean_stats["accepted_accuracy"],
+            "noise_reject_rate": noisy_stats["rejection_rate"],
+            "noise_accepted_acc": noisy_stats["accepted_accuracy"],
+            "noise_unsafe_error": noisy_stats["unsafe_error_rate"],
+        }
+        rows.append(row)
+
+    valid_rows = [r for r in rows if r["clean_reject_rate"] <= clean_reject_cap]
 
     if len(valid_rows) > 0:
         best = min(
             valid_rows,
-            key=lambda r: (r["unsafe_error_rate"], -r["accepted_accuracy"])
+            key=lambda r: (
+                r["noise_unsafe_error"],       # minimize unsafe errors on heavy noise
+                -r["noise_accepted_acc"],      # prefer better accepted accuracy
+                r["clean_reject_rate"]         # prefer rejecting fewer clean samples
+            )
         )
     else:
+        # fallback: choose threshold with lowest clean rejection, then lowest noise unsafe error
         best = min(
             rows,
-            key=lambda r: (r["unsafe_error_rate"], -r["accepted_accuracy"])
+            key=lambda r: (
+                r["clean_reject_rate"],
+                r["noise_unsafe_error"],
+                -r["noise_accepted_acc"]
+            )
         )
 
     return best, rows
-
 
 def main():
     set_seed(42)
@@ -326,22 +342,38 @@ def main():
     model.load_state_dict(torch.load(model_path, map_location=device))
     print(f"Loaded {model_path}")
 
-    # Tune tau on heavy-noise validation
+
+    clean_val_dataset = build_validation_dataset(root_dir, corruption_fn=None)
+    clean_val_loader = DataLoader(clean_val_dataset, batch_size=64, shuffle=False, num_workers=0)
+
+
     heavy_noise_fn = get_corruption_fn("noise", "heavy")
-    val_dataset = build_validation_dataset(root_dir, corruption_fn=heavy_noise_fn)
-    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=0)
+    noisy_val_dataset = build_validation_dataset(root_dir, corruption_fn=heavy_noise_fn)
+    noisy_val_loader = DataLoader(noisy_val_dataset, batch_size=64, shuffle=False, num_workers=0)
 
-    best_tau_stats, tuning_rows = tune_threshold(model, val_loader, device)
 
-    print("\nThreshold tuning on HEAVY-NOISE validation:")
-    print(f"{'tau':<8} {'accepted_acc':<15} {'reject_rate':<15} {'unsafe_error':<15}")
-    print("-" * 60)
+    best_tau_stats, tuning_rows = tune_threshold_practical(
+        model,
+        clean_val_loader,
+        noisy_val_loader,
+        device,
+        clean_reject_cap=0.10
+    )
+
+    print("\nThreshold tuning with CLEAN rejection cap <= 10%")
+    print(
+        f"{'tau':<8} {'clean_reject':<15} {'clean_acc':<15} "
+        f"{'noise_reject':<15} {'noise_acc':<15} {'noise_unsafe':<15}"
+    )
+    print("-" * 90)
     for row in tuning_rows:
         print(
             f"{row['tau']:<8.2f} "
-            f"{row['accepted_accuracy']:<15.4f} "
-            f"{row['rejection_rate']:<15.4f} "
-            f"{row['unsafe_error_rate']:<15.4f}"
+            f"{row['clean_reject_rate']:<15.4f} "
+            f"{row['clean_accepted_acc']:<15.4f} "
+            f"{row['noise_reject_rate']:<15.4f} "
+            f"{row['noise_accepted_acc']:<15.4f} "
+            f"{row['noise_unsafe_error']:<15.4f}"
         )
 
     chosen_tau = best_tau_stats["tau"]
@@ -354,14 +386,14 @@ def main():
         ("mulaw", "heavy", get_corruption_fn("mulaw", "heavy")),
     ]
 
-    print("\n" + "=" * 95)
+    print("\n" + "=" * 100)
     print("Reject Option Results")
-    print("=" * 95)
+    print("=" * 100)
     print(
-        f"{'Condition':<22} {'Tau':<8} {'Accepted Acc':<15} "
+        f"{'Condition':<24} {'Tau':<8} {'Accepted Acc':<15} "
         f"{'Reject Rate':<15} {'Unsafe Error':<15}"
     )
-    print("-" * 95)
+    print("-" * 100)
 
     for name, severity, corruption_fn in test_conditions:
         test_dataset = ESC50Dataset(
@@ -377,7 +409,7 @@ def main():
         label = name if severity == "-" else f"{name}-{severity}"
 
         print(
-            f"{label + ' (tau=0)':<22} "
+            f"{label + ' (tau=0)':<24} "
             f"{0.0:<8.2f} "
             f"{no_reject['accepted_accuracy']:<15.4f} "
             f"{no_reject['rejection_rate']:<15.4f} "
@@ -385,15 +417,14 @@ def main():
         )
 
         print(
-            f"{label + f' (tau={chosen_tau:.2f})':<22} "
+            f"{label + f' (tau={chosen_tau:.2f})':<24} "
             f"{chosen_tau:<8.2f} "
             f"{with_reject['accepted_accuracy']:<15.4f} "
             f"{with_reject['rejection_rate']:<15.4f} "
             f"{with_reject['unsafe_error_rate']:<15.4f}"
         )
 
-        print("-" * 95)
-
+        print("-" * 100)
 
 if __name__ == "__main__":
     main()
