@@ -1,0 +1,173 @@
+# Robust Environmental Sound Classification Under Realistic Audio Corruptions
+
+## Overview
+This project investigates the robustness of environmental sound classification models under realistic audio degradation. A baseline convolutional neural network (CNN) is trained on log-Mel spectrograms derived from the ESC-50 dataset, then evaluated under multiple corruption types including additive noise, lowpass filtering, and mu-law distortion. Robustness is improved and compared through waveform augmentation, SpecAugment, and a combined approach.
+
+The main goal is not only to classify environmental sounds accurately on clean data, but also to understand how model performance changes when the audio quality is degraded.
+
+## Project Objectives
+- Build a baseline environmental sound classifier using a CNN and log-Mel spectrogram inputs.
+- Evaluate how clean-condition training performs under realistic corruptions.
+- Train robustness-oriented model variants.
+- Compare all model variants through an ablation study.
+- Analyze which robustness method gives the best tradeoff between clean and corrupted-condition performance.
+
+## Dataset
+This project uses the **ESC-50** dataset, which contains 50 classes of short environmental sound clips.
+
+Examples of classes include:
+- dog bark
+- rain
+- siren
+- toilet flush
+- chainsaw
+
+### Data split
+The predefined fold structure of ESC-50 is used:
+- **Training:** folds 1--4
+- **Testing:** fold 5
+- **Validation:** 15% random split from the training portion
+
+Final split sizes used in this project:
+- **Train:** 1360
+- **Validation:** 240
+- **Test:** 400
+
+## Preprocessing Pipeline
+Each audio file is processed as follows:
+1. Load waveform from disk
+2. Convert to mono if necessary
+3. Resample if needed
+4. Convert waveform to Mel-spectrogram
+5. Apply log scaling
+6. Normalize per sample
+
+The resulting log-Mel spectrogram is used as input to the CNN.
+
+## Baseline Model
+The baseline model is a small CNN operating on spectrogram inputs.
+
+### Architecture
+- Conv2d(1, 16, kernel=3, padding=1)
+- BatchNorm2d(16)
+- ReLU
+- MaxPool2d(2)
+- Conv2d(16, 32, kernel=3, padding=1)
+- BatchNorm2d(32)
+- ReLU
+- MaxPool2d(2)
+- Conv2d(32, 64, kernel=3, padding=1)
+- BatchNorm2d(64)
+- ReLU
+- AdaptiveAvgPool2d((1, 1))
+- Linear(64, 50)
+
+### Why this architecture?
+This model was intentionally kept small and interpretable so that the effect of robustness methods could be studied clearly. The focus of the project is robustness analysis, not state-of-the-art clean accuracy.
+
+## Robustness Methods
+Three robustness-focused training variants were evaluated:
+
+### 1. Waveform Augmentation
+Random waveform-level distortions are applied during training:
+- additive noise
+- lowpass filtering
+- mu-law distortion
+
+### 2. SpecAugment
+Random time masking and frequency masking are applied to spectrograms during training.
+
+### 3. Waveform Augmentation + SpecAugment
+Both strategies are applied together.
+
+## Corruption Benchmark
+The corruption benchmark is applied at test time to measure robustness.
+
+### Corruption families
+- **Additive noise**: simulates background interference
+- **Lowpass filtering**: simulates bandwidth loss or lower-quality microphones
+- **Mu-law distortion**: simulates quantization or telephony-like compression artifacts
+
+### Severity levels
+Each corruption family is evaluated at:
+- light
+- medium
+- heavy
+
+## Validation Strategy
+The project uses a standard train/validation/test workflow:
+- **Training set:** used to update model weights
+- **Validation set:** used to select the best checkpoint
+- **Test set:** used only for final evaluation
+
+Training uses:
+- **Loss:** Cross-entropy
+- **Optimizer:** Adam
+- **Learning rate:** 1e-3
+
+
+## File Structure
+Suggested project structure:
+
+```text
+COMP4107Project/
+├── ESC-50/
+│   ├── audio/
+│   └── meta/
+├── part2_test.py
+├── train_baseline.py
+├── train_robust.py
+├── evaluate_corruptions.py
+├── evaluate_reject.py
+├── demo_example.py
+├── best_baseline.pt
+├── best_waveform_aug.pt
+├── best_specaug.pt
+├── best_both.pt
+└── README.md
+```
+
+## How to Run
+### 1. Baseline data pipeline check
+```bash
+python part2_test.py
+```
+
+### 2. Train baseline model
+```bash
+python train_baseline.py
+```
+
+### 3. Train robust model variants
+Edit the config inside `train_robust.py` and run:
+```bash
+python train_robust.py
+```
+Repeat for:
+- waveform augmentation
+- SpecAugment
+- both
+
+### 4. Evaluate corruption benchmark
+```bash
+python evaluate_corruptions.py
+```
+
+### 5. Evaluate reject option
+```bash
+python evaluate_reject.py
+```
+
+### 6. Run demo example
+```bash
+python demo_example.py
+```
+
+## AI Usage
+AI was used for repetitive code generating, debugging and analysis.
+Previous assignments source code was used for data processing.
+
+## Author
+Kyan Shirani  
+Carleton University  
+COMP4107 Project
